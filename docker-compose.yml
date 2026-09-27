@@ -1,0 +1,73 @@
+# LegalLens - full stack.
+#
+#   docker compose up --build              backend + frontend (Chroma embedded)
+#   docker compose --profile pgvector up    swap in Postgres/pgvector
+#   docker compose --profile otel up        add a Jaeger trace collector
+#
+# The default profile needs no external services: Chroma is embedded and the
+# embedding model runs locally, so the stack works offline apart from the
+# Anthropic call that generates answers.
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    ports: ["8000:8000"]
+    environment:
+      ENVIRONMENT: prod
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VECTOR_BACKEND: ${VECTOR_BACKEND:-chroma}
+      CHUNK_STRATEGY: ${CHUNK_STRATEGY:-legal_structural}
+      CUAD_DIR: /data/CUAD_v1
+      CORS_ORIGINS: '["http://localhost:3000"]'
+      OTEL_ENDPOINT: ${OTEL_ENDPOINT:-}
+    volumes:
+      # Named volume keeps the index and the downloaded model across rebuilds -
+      # without it every `up --build` re-downloads 440MB and re-embeds.
+      - backend-data:/app/data
+      # Mount the corpus read-only; the container never writes to the dataset.
+      - ${CUAD_DIR:-./backend/data/corpus}:/data/CUAD_v1:ro
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports: ["3000:3000"]
+    environment:
+      # Server-side rewrite target, so it resolves on the compose network.
+      NEXT_PUBLIC_API_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    profiles: ["pgvector"]
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: legallens
+      POSTGRES_PASSWORD: legallens
+      POSTGRES_DB: legallens
+    ports: ["5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legallens"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  jaeger:
+    profiles: ["otel"]
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP/HTTP - what OTEL_ENDPOINT points at
+
+volumes:
+  backend-data:
+  pg-data:

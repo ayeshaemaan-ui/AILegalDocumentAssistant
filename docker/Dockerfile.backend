@@ -1,0 +1,40 @@
+# Multi-stage: the wheel build needs compilers, the runtime does not.
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential git && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+FROM python:3.12-slim AS runtime
+
+# libgomp is required by torch; poppler by pdfplumber for some PDFs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 poppler-utils curl && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+COPY backend/ /app/
+
+# Run as a non-root user - the container never needs write access outside /app/data.
+RUN useradd --create-home --uid 10001 legallens \
+    && mkdir -p /app/data && chown -R legallens:legallens /app
+USER legallens
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    HF_HOME=/app/data/.cache/huggingface \
+    PYTHONPATH=/app
+
+EXPOSE 8000
+
+# Checks readiness, not just liveness: a process that is up but whose vector
+# store failed to open should not receive traffic.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD curl -fsS http://localhost:8000/api/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

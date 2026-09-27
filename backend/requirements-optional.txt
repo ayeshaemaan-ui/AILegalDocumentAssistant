@@ -1,0 +1,9 @@
+# Optional vector-store backends. The factory in app/retrieval/vectorstore.py
+# imports these lazily, so the app runs fine without them.
+langchain-postgres>=0.0.12   # PGVector
+psycopg[binary]>=3.2.0
+pgvector>=0.3.6
+pinecone>=5.4.0              # Pinecone
+langchain-pinecone>=0.2.0
+weaviate-client>=4.9.0       # Weaviate
+langchain-weaviate>=0.0.3

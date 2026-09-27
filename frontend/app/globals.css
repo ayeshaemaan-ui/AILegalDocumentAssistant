@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+/*
+  LegalLens design tokens.
+
+  The palette is deliberately restrained: legal research is a reading task, so
+  the interface should recede and let contract text be the most prominent thing
+  on screen. One accent colour (slate-blue) carries interaction; a warm amber is
+  reserved exclusively for confidence warnings so it never competes for meaning.
+*/
+@theme {
+  --color-ink-50:  #f6f7f9;
+  --color-ink-100: #eceef2;
+  --color-ink-200: #d5d9e2;
+  --color-ink-300: #b0b8c8;
+  --color-ink-400: #8590a8;
+  --color-ink-500: #67728c;
+  --color-ink-600: #525b73;
+  --color-ink-700: #434a5e;
+  --color-ink-800: #3a3f4f;
+  --color-ink-900: #171a22;
+  --color-ink-950: #0e1016;
+
+  --color-accent-50:  #eef4ff;
+  --color-accent-100: #dce6fd;
+  --color-accent-200: #c0d3fc;
+  --color-accent-400: #6b95f6;
+  --color-accent-500: #476fea;
+  --color-accent-600: #3151d8;
+  --color-accent-700: #2941b4;
+  --color-accent-900: #22306e;
+
+  --color-warn-100: #fdf0d5;
+  --color-warn-500: #c8871a;
+  --color-warn-700: #8a5c0f;
+
+  --color-good-100: #d9f2e4;
+  --color-good-500: #16a367;
+  --color-good-700: #0d7a4c;
+
+  --color-bad-100: #fde3e1;
+  --color-bad-500: #dc4c46;
+  --color-bad-700: #a32f2a;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+:root {
+  --bg: var(--color-ink-50);
+  --surface: #ffffff;
+  --surface-sunken: var(--color-ink-100);
+  --border: var(--color-ink-200);
+  --text: var(--color-ink-900);
+  --text-muted: var(--color-ink-500);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: var(--color-ink-950);
+  --surface: #171a22;
+  --surface-sunken: #1e2129;
+  --border: #2b2f3a;
+  --text: var(--color-ink-100);
+  --text-muted: var(--color-ink-400);
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: var(--color-ink-950);
+    --surface: #171a22;
+    --surface-sunken: #1e2129;
+    --border: #2b2f3a;
+    --text: var(--color-ink-100);
+    --text-muted: var(--color-ink-400);
+    color-scheme: dark;
+  }
+}
+
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, unobtrusive scrollbars - long contract text is scrolled constantly. */
+* { scrollbar-width: thin; scrollbar-color: var(--color-ink-300) transparent; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb { background: var(--color-ink-300); border-radius: 99px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Markdown rendering inside answer bubbles. */
+.prose-answer { line-height: 1.65; }
+.prose-answer p { margin: 0 0 0.75rem; }
+.prose-answer p:last-child { margin-bottom: 0; }
+.prose-answer ul, .prose-answer ol { margin: 0 0 0.75rem 1.1rem; }
+.prose-answer li { margin-bottom: 0.3rem; }
+.prose-answer strong { font-weight: 650; }
+.prose-answer code {
+  font-family: var(--font-mono); font-size: 0.86em;
+  background: var(--surface-sunken); padding: 0.1em 0.35em; border-radius: 4px;
+}
+.prose-answer blockquote {
+  border-left: 3px solid var(--color-accent-200);
+  padding-left: 0.85rem; margin: 0 0 0.75rem; color: var(--text-muted);
+}
+.prose-answer hr { border: 0; border-top: 1px solid var(--border); margin: 1rem 0; }
+.prose-answer em { color: var(--text-muted); }
+
+/* The blinking caret shown while tokens are streaming in. */
+@keyframes caret { 0%, 45% { opacity: 1 } 50%, 100% { opacity: 0 } }
+.caret::after {
+  content: "▍"; margin-left: 1px; animation: caret 1.05s steps(1) infinite;
+  color: var(--color-accent-500);
+}
+
+@keyframes shimmer { 100% { transform: translateX(100%); } }
+.shimmer { position: relative; overflow: hidden; }
+.shimmer::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(127,140,170,0.13), transparent);
+  animation: shimmer 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret::after, .shimmer::after { animation: none; }
+}
