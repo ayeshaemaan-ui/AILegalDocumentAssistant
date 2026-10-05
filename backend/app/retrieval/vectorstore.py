@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Sequence
+from typing import Any, Iterator, Sequence
 
 from app.config import Settings, get_settings
 from app.ingestion.chunking import Chunk
@@ -115,25 +115,47 @@ class ChromaStore(VectorStore):
     def count(self) -> int:
         return self._collection.count()
 
+    # Chroma's SQLite backend binds one variable per row it returns, so an
+    # unbounded `get()` trips SQLITE_MAX_VARIABLE_NUMBER (32,766) once the
+    # collection outgrows it - which the 510-contract corpus does at ~35k
+    # chunks. Page through instead; the limit is per statement, not per scan.
+    _SCAN_PAGE = 5_000
+
+    def _scan(self, include: list[str]) -> Iterator[dict[str, Any]]:
+        """Yield every record in the collection, one page at a time."""
+        offset = 0
+        while True:
+            page = self._collection.get(
+                include=include, limit=self._SCAN_PAGE, offset=offset
+            )
+            ids = page.get("ids") or []
+            if not ids:
+                return
+            yield page
+            if len(ids) < self._SCAN_PAGE:
+                return
+            offset += len(ids)
+
     def all_chunks(self) -> list[RetrievedChunk]:
         """Full dump - used to build the in-memory BM25 index at startup."""
-        payload = self._collection.get(include=["documents", "metadatas"])
         out: list[RetrievedChunk] = []
-        for cid, text, meta in zip(
-            payload.get("ids", []), payload.get("documents", []), payload.get("metadatas", [])
-        ):
-            meta = dict(meta or {})
-            out.append(
-                RetrievedChunk(
-                    chunk_id=cid, doc_id=meta.get("doc_id", ""), text=text or "", metadata=meta
+        for payload in self._scan(["documents", "metadatas"]):
+            for cid, text, meta in zip(
+                payload.get("ids", []),
+                payload.get("documents", []),
+                payload.get("metadatas", []),
+            ):
+                meta = dict(meta or {})
+                out.append(
+                    RetrievedChunk(
+                        chunk_id=cid, doc_id=meta.get("doc_id", ""), text=text or "", metadata=meta
+                    )
                 )
-            )
         return out
 
     def list_documents(self) -> list[dict[str, Any]]:
-        payload = self._collection.get(include=["metadatas"])
         docs: dict[str, dict[str, Any]] = {}
-        for meta in payload.get("metadatas", []):
+        for meta in (m for page in self._scan(["metadatas"]) for m in page.get("metadatas", [])):
             meta = dict(meta or {})
             doc_id = meta.get("doc_id")
             if not doc_id:
