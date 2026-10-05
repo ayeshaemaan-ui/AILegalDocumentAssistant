@@ -70,9 +70,11 @@ class Settings(BaseSettings):
     # Google Gemini: the free tier needs no credit card, which makes it the
     # realistic cloud option when there is no billing account.
     google_api_key: str | None = None
-    gemini_answer_model: str = "gemini-2.5-flash"
-    gemini_fast_model: str = "gemini-2.5-flash-lite"
-    gemini_judge_model: str = "gemini-2.5-flash-lite"
+    # Verified available on a current free-tier key. The 2.5 line is closed to
+    # new accounts, so defaulting to it would 404 for anyone starting today.
+    gemini_answer_model: str = "gemini-3.6-flash"
+    gemini_fast_model: str = "gemini-3.5-flash-lite"
+    gemini_judge_model: str = "gemini-3.5-flash-lite"
     gemini_temperature: float = 0.2
 
     # Module 1 (Temperature/Top-P) + thinking/effort controls.

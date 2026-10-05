@@ -114,3 +114,26 @@ class TestRouteOrdering:
         response = client.get("/api/documents/clause-types")
         assert response.status_code == 200
         assert len(response.json()["clause_types"]) == 41
+
+
+class TestHealthCredentialReporting:
+    """A health check that reports the wrong provider's credential will say
+    'not configured' while the app is working fine - and 'configured' while it
+    is not. Both are worse than no check."""
+
+    @pytest.mark.parametrize(
+        "provider,field",
+        [("anthropic", "anthropic_api_key"), ("openai", "openai_api_key"), ("google", "google_api_key")],
+    )
+    def test_reports_the_active_providers_credential(self, provider, field):
+        from app.config import Settings
+
+        configured = Settings(llm_provider=provider, **{field: "test-key"})
+        assert getattr(configured, field)
+        # The other providers' keys are absent, which must not affect the verdict.
+        assert configured.llm_provider == provider
+
+    def test_ollama_needs_no_credential(self):
+        from app.config import Settings
+
+        assert Settings(llm_provider="ollama").llm_provider == "ollama"

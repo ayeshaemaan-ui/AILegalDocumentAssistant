@@ -42,11 +42,21 @@ async def health() -> dict[str, Any]:
     except Exception as exc:
         checks["bm25"] = {"ok": False, "error": str(exc)}
 
+    # Report the credential for the provider actually in use. Checking only the
+    # Anthropic key reported "not configured" while Gemini was happily serving
+    # every request - a health check that lies about health is worse than none.
+    credential_by_provider = {
+        "anthropic": bool(settings.anthropic_api_key),
+        "openai": bool(settings.openai_api_key),
+        "google": bool(settings.google_api_key),
+        "ollama": True,  # local, needs no credential
+    }
     checks["llm"] = {
         "provider": settings.llm_provider,
         "answer_model": settings.resolved_answer_model,
-        # Report whether a credential is configured without ever echoing it.
-        "credential_configured": bool(settings.anthropic_api_key),
+        "fast_model": settings.resolved_fast_model,
+        # Whether a credential exists - never the credential itself.
+        "credential_configured": credential_by_provider.get(settings.llm_provider, False),
     }
     healthy = all(c.get("ok", True) for c in checks.values())
     return {

@@ -38,11 +38,14 @@ T = TypeVar("T", bound=BaseModel)
 # USD per 1M tokens on the paid tier. The free tier bills nothing; these exist
 # so the cost page still reports something meaningful if billing is enabled.
 PRICING: dict[str, dict[str, float]] = {
+    "gemini-3.8-flash":      {"input": 0.30, "output": 2.50},
+    "gemini-3.5-flash":      {"input": 0.30, "output": 2.50},
+    "gemini-3.5-flash-lite": {"input": 0.10, "output": 0.40},
+    "gemini-3.1-flash-lite": {"input": 0.10, "output": 0.40},
+    "gemini-3.1-pro":        {"input": 1.25, "output": 10.00},
     "gemini-2.5-pro":        {"input": 1.25, "output": 10.00},
     "gemini-2.5-flash":      {"input": 0.30, "output": 2.50},
     "gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
-    "gemini-2.0-flash":      {"input": 0.10, "output": 0.40},
-    "gemini-2.0-flash-lite": {"input": 0.075, "output": 0.30},
 }
 
 
@@ -51,6 +54,34 @@ def price_for(model: str) -> dict[str, float] | None:
         return PRICING[model]
     candidates = [k for k in PRICING if model.startswith(k)]
     return PRICING[max(candidates, key=len)] if candidates else None
+
+# Gemini's free tier returns 503 UNAVAILABLE ("high demand") on individual
+# models unpredictably - a model that works now can be unavailable a minute
+# later. That is a property of the free tier, not a bug, so the adapter treats
+# it as one: on an overload it walks down a chain of progressively lighter
+# models rather than failing the user's request.
+#
+# Order is best-quality-first. The lite models are markedly less likely to be
+# saturated, which is exactly what makes them a useful last resort.
+FALLBACK_CHAIN: list[str] = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+]
+
+# Status codes worth retrying on a different model. A 404 (model retired) or a
+# 400 (bad request) would fail identically on every model, so they propagate.
+RETRYABLE_MARKERS = ("503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED", "overloaded")
+
+
+def _is_overloaded(exc: Exception) -> bool:
+    text = str(exc)
+    return any(marker in text for marker in RETRYABLE_MARKERS)
+
+
+def fallbacks_for(model: str) -> list[str]:
+    """The model asked for, then any chain entries not already tried."""
+    return [model] + [m for m in FALLBACK_CHAIN if m != model]
 
 
 class GeminiUsage(Usage):
@@ -113,6 +144,33 @@ class GeminiClient(LLMClient):
             latency_ms=latency_ms,
         )
 
+    async def _generate_with_fallback(self, *, model: str, contents: Any, config: Any):
+        """Try `model`, then lighter ones, while the failure is an overload.
+
+        Returns the response and the model that actually produced it, so usage
+        and cost are attributed to the model that ran rather than the one asked
+        for - otherwise the cost page would quietly lie.
+        """
+        last: Exception | None = None
+        for candidate in fallbacks_for(model):
+            try:
+                response = await self._client.aio.models.generate_content(
+                    model=candidate, contents=contents, config=config
+                )
+                if candidate != model:
+                    logger.info("Gemini fell back from %s to %s", model, candidate)
+                return response, candidate
+            except Exception as exc:
+                if not _is_overloaded(exc):
+                    raise  # a real error - retrying elsewhere would not help
+                logger.warning("Gemini %s overloaded, trying next", candidate)
+                last = exc
+        raise RuntimeError(
+            "Every Gemini model in the fallback chain is currently overloaded. "
+            "The free tier is busy - wait a moment and ask again. "
+            f"Last error: {last}"
+        )
+
     # ----------------------------------------------------------- complete
     async def complete(
         self,
@@ -134,7 +192,7 @@ class GeminiClient(LLMClient):
             extra["tools"] = [{"function_declarations": [_to_gemini_tool(t) for t in tools]}]
 
         started = asyncio.get_event_loop().time()
-        response = await self._client.aio.models.generate_content(
+        response, model = await self._generate_with_fallback(
             model=model,
             contents=self._contents(messages),
             config=self._config(system=system, max_tokens=max_tokens, **extra),
@@ -204,7 +262,7 @@ class GeminiClient(LLMClient):
         max_tokens = max_tokens or self.settings.fast_max_tokens
 
         started = asyncio.get_event_loop().time()
-        response = await self._client.aio.models.generate_content(
+        response, model = await self._generate_with_fallback(
             model=model,
             contents=self._contents(messages),
             config=self._config(
